@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transcrição de Áudio - iPhone</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
+    .container { max-width: 500px; margin: 40px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 24px; }
+    h1 { text-align: center; color: #333; }
+    #transcription { min-height: 120px; background: #eee; border-radius: 6px; padding: 16px; font-size: 1.2em; color: #222; margin-bottom: 16px; }
+    button { display: block; width: 100%; padding: 12px; font-size: 1em; border: none; border-radius: 6px; background: #007aff; color: #fff; cursor: pointer; margin-bottom: 8px; }
+    button:disabled { background: #aaa; }
+    .info { font-size: 0.95em; color: #555; text-align: center; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Transcrição de Áudio</h1>
+    <div id="transcription">Clique em "Iniciar" e fale para transcrever.</div>
+    <button id="startBtn">Iniciar</button>
+    <button id="stopBtn" disabled>Parar</button>
+    <div class="info">Funciona melhor no Safari do iPhone.<br>Permita o acesso ao microfone.</div>
+  </div>
+  <script>
+    const transcription = document.getElementById('transcription');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    let recognition;
+    let listening = false;
+
+    function supportsSpeechRecognition() {
+      return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+    }
+
+    if (!supportsSpeechRecognition()) {
+      transcription.textContent = 'Seu navegador não suporta reconhecimento de voz.';
+      startBtn.disabled = true;
+    } else {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.lang = 'pt-BR';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        let texto = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          texto += event.results[i][0].transcript;
+        }
+        transcription.textContent = texto;
+      };
+
+      recognition.onerror = (event) => {
+        transcription.textContent = 'Erro: ' + event.error;
+        listening = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+
+      recognition.onend = () => {
+        listening = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+
+      startBtn.onclick = () => {
+        recognition.start();
+        listening = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        transcription.textContent = 'Ouvindo...';
+      };
+
+      stopBtn.onclick = () => {
+        recognition.stop();
+        listening = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+    }
+  </script>
+</body>
+</html>
