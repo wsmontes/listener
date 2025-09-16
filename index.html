@@ -32,13 +32,16 @@
   <div class="container">
     <h1>Anotador de Áudio</h1>
     <div id="transcription">Clique em "Iniciar" e fale para transcrever.</div>
+  <div id="recordingIndicator" style="display:none;color:#007aff;font-weight:bold;text-align:center;margin-bottom:8px;">● Gravando...</div>
     <div class="controls">
-      <button id="startBtn">Iniciar</button>
-      <button id="stopBtn" disabled>Parar</button>
-      <button id="saveBtn" disabled>Salvar</button>
-      <button id="clearBtn">Limpar</button>
+  <button id="startBtn">Iniciar</button>
+  <button id="stopBtn" disabled>Parar</button>
+  <button id="saveBtn" disabled>Salvar</button>
+  <button id="copyTranscriptionBtn" disabled>Copiar</button>
+  <button id="clearBtn">Limpar</button>
     </div>
     <div class="info">Funciona melhor no Safari do iPhone.<br>Permita o acesso ao microfone.</div>
+    <div class="ios-tips" style="font-size:0.95em;color:#007aff;text-align:center;margin-top:8px;">
     <div class="recordings">
       <div class="recordings-title">Gravações salvas</div>
       <ul id="recordingList" class="recording-list"></ul>
@@ -50,6 +53,8 @@
   const stopBtn = document.getElementById('stopBtn');
   const saveBtn = document.getElementById('saveBtn');
   const clearBtn = document.getElementById('clearBtn');
+  const copyTranscriptionBtn = document.getElementById('copyTranscriptionBtn');
+  const recordingIndicator = document.getElementById('recordingIndicator');
   const recordingList = document.getElementById('recordingList');
     let recognition;
     let listening = false;
@@ -165,6 +170,13 @@
       return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
     }
 
+    function showPermissionError() {
+      transcription.textContent = 'Permissão de microfone negada. Ative em Ajustes > Safari > Microfone.';
+      startBtn.disabled = true;
+      stopBtn.disabled = true;
+      saveBtn.disabled = true;
+    }
+
     if (!supportsSpeechRecognition()) {
       transcription.textContent = 'Seu navegador não suporta reconhecimento de voz.';
       startBtn.disabled = true;
@@ -178,23 +190,43 @@
       recognition.interimResults = true;
 
       recognition.onresult = (event) => {
-        let novoTexto = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          novoTexto += event.results[i][0].transcript;
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
         }
-        // Acumula o texto falado indefinidamente
-        currentText += novoTexto;
+        // Pontuação automática básica: adiciona ponto final se houver pausa longa
+        if (finalTranscript && !finalTranscript.trim().endsWith('.')) {
+          finalTranscript = finalTranscript.trim() + '. ';
+        }
+        currentText = (finalTranscript + interimTranscript).trim();
         transcription.textContent = currentText;
-        canSave = currentText.trim().length > 0;
+        canSave = finalTranscript.trim().length > 0;
         saveBtn.disabled = !canSave;
+        copyTranscriptionBtn.disabled = currentText.length === 0;
       };
 
       recognition.onerror = (event) => {
-        transcription.textContent = 'Erro: ' + event.error;
+        if (event.error === 'not-allowed' || event.error === 'denied') {
+          showPermissionError();
+        } else if (event.error === 'no-speech') {
+          transcription.textContent = 'Nenhuma fala detectada. Tente novamente.';
+          // Reinicia automaticamente após erro de fala
+          setTimeout(() => { if (!listening) recognition.start(); }, 1200);
+        } else if (event.error === 'audio-capture') {
+          transcription.textContent = 'Microfone não encontrado. Verifique as permissões.';
+        } else {
+          transcription.textContent = 'Erro: ' + event.error;
+        }
         listening = false;
         startBtn.disabled = false;
         stopBtn.disabled = true;
         saveBtn.disabled = true;
+        recordingIndicator.style.display = 'none';
       };
 
       recognition.onend = () => {
@@ -212,21 +244,28 @@
       };
 
       startBtn.onclick = () => {
-        recognition.start();
-        listening = true;
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        saveBtn.disabled = true;
-        transcription.textContent = 'Ouvindo...';
-        currentText = '';
+        try {
+          recognition.start();
+          listening = true;
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          saveBtn.disabled = true;
+          copyTranscriptionBtn.disabled = true;
+          transcription.textContent = 'Ouvindo...';
+          recordingIndicator.style.display = '';
+          currentText = '';
+        } catch (e) {
+          transcription.textContent = 'Erro ao iniciar reconhecimento. Verifique permissões.';
+        }
       };
 
       stopBtn.onclick = () => {
-        recognition.stop();
-        listening = false;
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        saveBtn.disabled = !canSave;
+  recognition.stop();
+  listening = false;
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  saveBtn.disabled = !canSave;
+  recordingIndicator.style.display = 'none';
       };
 
       saveBtn.onclick = () => {
@@ -235,13 +274,20 @@
           currentText = '';
           transcription.textContent = '';
           saveBtn.disabled = true;
+          copyTranscriptionBtn.disabled = true;
         }
       };
 
       clearBtn.onclick = () => {
-        currentText = '';
-        transcription.textContent = '';
-        saveBtn.disabled = true;
+  currentText = '';
+  transcription.textContent = '';
+  saveBtn.disabled = true;
+  copyTranscriptionBtn.disabled = true;
+    copyTranscriptionBtn.onclick = () => {
+      if (transcription.textContent.trim().length > 0) {
+        navigator.clipboard.writeText(transcription.textContent.trim());
+      }
+    };
       };
     }
   </script>
