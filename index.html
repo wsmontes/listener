@@ -6,28 +6,160 @@
   <title>Transcrição de Áudio - iPhone</title>
   <style>
     body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
-    .container { max-width: 500px; margin: 40px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 24px; }
-    h1 { text-align: center; color: #333; }
-    #transcription { min-height: 120px; background: #eee; border-radius: 6px; padding: 16px; font-size: 1.2em; color: #222; margin-bottom: 16px; }
-    button { display: block; width: 100%; padding: 12px; font-size: 1em; border: none; border-radius: 6px; background: #007aff; color: #fff; cursor: pointer; margin-bottom: 8px; }
-    button:disabled { background: #aaa; }
+    .container { max-width: 600px; margin: 24px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.12); padding: 24px; }
+    h1 { text-align: center; color: #333; margin-bottom: 8px; }
+    #transcription { min-height: 120px; background: #f0f4fa; border-radius: 8px; padding: 16px; font-size: 1.15em; color: #222; margin-bottom: 12px; word-break: break-word; }
+    .controls { display: flex; gap: 12px; margin-bottom: 16px; }
+    .controls button { flex: 1; padding: 12px; font-size: 1em; border: none; border-radius: 8px; background: #007aff; color: #fff; cursor: pointer; }
+    .controls button:disabled { background: #aaa; }
     .info { font-size: 0.95em; color: #555; text-align: center; margin-top: 12px; }
+    .recordings { margin-top: 24px; }
+    .recordings-title { font-weight: bold; color: #333; margin-bottom: 8px; }
+    .recording-list { list-style: none; padding: 0; margin: 0; }
+    .recording-item { background: #f8f8f8; border-radius: 8px; margin-bottom: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+    .recording-actions { display: flex; gap: 8px; }
+    .recording-actions button { flex: 1; padding: 8px; font-size: 0.95em; border: none; border-radius: 6px; background: #007aff; color: #fff; cursor: pointer; }
+    .recording-actions button.delete { background: #ff3b30; }
+    .recording-actions button.copy { background: #34c759; }
+    .recording-actions button.export { background: #5856d6; }
+    @media (max-width: 600px) {
+      .container { max-width: 98vw; padding: 8vw 2vw; }
+      #transcription { font-size: 1em; }
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Transcrição de Áudio</h1>
+    <h1>Anotador de Áudio</h1>
     <div id="transcription">Clique em "Iniciar" e fale para transcrever.</div>
-    <button id="startBtn">Iniciar</button>
-    <button id="stopBtn" disabled>Parar</button>
+    <div class="controls">
+      <button id="startBtn">Iniciar</button>
+      <button id="stopBtn" disabled>Parar</button>
+      <button id="saveBtn" disabled>Salvar</button>
+      <button id="clearBtn">Limpar</button>
+    </div>
     <div class="info">Funciona melhor no Safari do iPhone.<br>Permita o acesso ao microfone.</div>
+    <div class="recordings">
+      <div class="recordings-title">Gravações salvas</div>
+      <ul id="recordingList" class="recording-list"></ul>
+    </div>
   </div>
   <script>
-    const transcription = document.getElementById('transcription');
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
+  const transcription = document.getElementById('transcription');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const recordingList = document.getElementById('recordingList');
     let recognition;
     let listening = false;
+    let currentText = '';
+    let canSave = false;
+
+    // IndexedDB helpers
+    const DB_NAME = 'transcricoesDB';
+    const STORE_NAME = 'transcricoes';
+    let db;
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = function(e) {
+          db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+        };
+        request.onsuccess = function(e) {
+          db = e.target.result;
+          resolve(db);
+        };
+        request.onerror = function(e) {
+          reject(e);
+        };
+      });
+    }
+
+    function saveTranscription(text) {
+      if (!db) return;
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const id = Date.now();
+      store.put({ id, text, date: new Date().toLocaleString() });
+      tx.oncomplete = () => {
+        loadTranscriptions();
+      };
+    }
+
+    function loadTranscriptions() {
+      if (!db) return;
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.getAll();
+      request.onsuccess = function() {
+        renderTranscriptions(request.result);
+      };
+    }
+
+    function renderTranscriptions(list) {
+      recordingList.innerHTML = '';
+      if (!list.length) {
+        recordingList.innerHTML = '<li style="color:#888;text-align:center;">Nenhuma gravação salva.</li>';
+        return;
+      }
+      list.sort((a,b) => b.id - a.id);
+      list.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'recording-item';
+        li.innerHTML = `
+          <div><b>${item.date}</b></div>
+          <div class="recording-text" style="white-space:pre-line;">${item.text}</div>
+          <div class="recording-actions">
+            <button class="view">Visualizar</button>
+            <button class="copy">Copiar</button>
+            <button class="export">Exportar TXT</button>
+            <button class="delete">Apagar</button>
+          </div>
+        `;
+        // Actions
+        li.querySelector('.view').onclick = () => {
+          transcription.textContent = item.text;
+        };
+        li.querySelector('.copy').onclick = () => {
+          navigator.clipboard.writeText(item.text);
+        };
+        li.querySelector('.export').onclick = () => {
+          const blob = new Blob([item.text], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `transcricao-${item.id}.txt`;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 100);
+        };
+        li.querySelector('.delete').onclick = () => {
+          deleteTranscription(item.id);
+        };
+        recordingList.appendChild(li);
+      });
+    }
+
+    function deleteTranscription(id) {
+      if (!db) return;
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.delete(id);
+      tx.oncomplete = () => {
+        loadTranscriptions();
+      };
+    }
+
+    // Inicializar DB e carregar gravações
+    openDB().then(() => loadTranscriptions());
 
     function supportsSpeechRecognition() {
       return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
@@ -36,6 +168,8 @@
     if (!supportsSpeechRecognition()) {
       transcription.textContent = 'Seu navegador não suporta reconhecimento de voz.';
       startBtn.disabled = true;
+      stopBtn.disabled = true;
+      saveBtn.disabled = true;
     } else {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognition = new SpeechRecognition();
@@ -48,7 +182,10 @@
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           texto += event.results[i][0].transcript;
         }
+        currentText = texto;
         transcription.textContent = texto;
+        canSave = texto.trim().length > 0;
+        saveBtn.disabled = !canSave;
       };
 
       recognition.onerror = (event) => {
@@ -56,12 +193,21 @@
         listening = false;
         startBtn.disabled = false;
         stopBtn.disabled = true;
+        saveBtn.disabled = true;
       };
 
       recognition.onend = () => {
         listening = false;
         startBtn.disabled = false;
         stopBtn.disabled = true;
+        saveBtn.disabled = !canSave;
+        // Salvar automaticamente ao finalizar
+        if (canSave && currentText.trim().length > 0) {
+          saveTranscription(currentText.trim());
+          currentText = '';
+          transcription.textContent = '';
+          saveBtn.disabled = true;
+        }
       };
 
       startBtn.onclick = () => {
@@ -69,7 +215,9 @@
         listening = true;
         startBtn.disabled = true;
         stopBtn.disabled = false;
+        saveBtn.disabled = true;
         transcription.textContent = 'Ouvindo...';
+        currentText = '';
       };
 
       stopBtn.onclick = () => {
@@ -77,6 +225,22 @@
         listening = false;
         startBtn.disabled = false;
         stopBtn.disabled = true;
+        saveBtn.disabled = !canSave;
+      };
+
+      saveBtn.onclick = () => {
+        if (canSave && currentText.trim().length > 0) {
+          saveTranscription(currentText.trim());
+          currentText = '';
+          transcription.textContent = '';
+          saveBtn.disabled = true;
+        }
+      };
+
+      clearBtn.onclick = () => {
+        currentText = '';
+        transcription.textContent = '';
+        saveBtn.disabled = true;
       };
     }
   </script>
