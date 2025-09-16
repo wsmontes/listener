@@ -178,13 +178,14 @@
       recognition.interimResults = true;
 
       recognition.onresult = (event) => {
-        let texto = '';
+        let novoTexto = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          texto += event.results[i][0].transcript;
+          novoTexto += event.results[i][0].transcript;
         }
-        currentText = texto;
-        transcription.textContent = texto;
-        canSave = texto.trim().length > 0;
+        // Acumula o texto falado indefinidamente
+        currentText += novoTexto;
+        transcription.textContent = currentText;
+        canSave = currentText.trim().length > 0;
         saveBtn.disabled = !canSave;
       };
 
